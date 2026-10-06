@@ -1,1 +1,171 @@
-# -
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>免Token安全AI系統</title>
+    <!-- 引入網頁美化套件 -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- 引入免Token的WebLLM核心套件 -->
+    <script type="module">
+        import * as webllm from "https://esm.run";
+        window.webllm = webllm;
+    </script>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col justify-between font-sans">
+
+    <!-- 1. 全繁體中文 驗證登入遮罩畫面 (未驗證時顯示) -->
+    <div id="login-overlay" class="fixed inset-0 bg-gray-900 flex flex-col items-center justify-center z-50 p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
+            <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
+                🔒
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-2">安全身分驗證</h2>
+            <p class="text-gray-500 mb-6 text-sm">此為私人的 AI 自動回覆系統，請先完成管理員驗證以解鎖瀏覽器 AI 運算引擎。</p>
+            <button onclick="startVerification()" class="w-full bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:bg-blue-700 transition cursor-pointer">
+                開始身分驗證登入
+            </button>
+            <p id="login-error" class="text-red-500 text-sm mt-4 hidden"></p>
+        </div>
+    </div>
+
+    <!-- 2. 主聊天畫面 (驗證通過後顯示) -->
+    <div class="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center">
+        <div>
+            <h1 class="text-lg font-bold">本機安全智慧助理 (免Token)</h1>
+            <p id="status" class="text-xs text-blue-200">正在等待驗證...</p>
+        </div>
+        <button onclick="lockSystem()" class="bg-blue-700 hover:bg-blue-800 text-xs px-3 py-1 rounded-lg transition cursor-pointer">安全鎖定</button>
+    </div>
+
+    <!-- 聊天對話區域 -->
+    <div id="chat-box" class="flex-1 p-4 overflow-y-auto space-y-4 max-w-3xl w-full mx-auto">
+        <div class="flex items-start">
+            <div class="bg-white p-3 rounded-lg shadow-sm max-w-[80%] text-gray-800 text-sm leading-relaxed">
+                🎉 身分驗證成功！正在啟動瀏覽器本機 AI 引擎...<br>
+                提示：第一次使用需要下載超輕量模型（約需數十秒），下載完成後，以後即使斷網也能正常自動回覆！
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部輸入區域 -->
+    <div class="bg-white border-t border-gray-200 p-4 shadow-lg">
+        <div class="max-w-3xl mx-auto flex gap-2">
+            <input type="text" id="user-input" disabled
+                   class="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100" 
+                   placeholder="請先等待 AI 模型載入完畢...">
+            <button id="send-btn" disabled onclick="sendMessage()" 
+                    class="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-400 cursor-pointer">
+                傳送
+            </button>
+        </div>
+    </div>
+
+    <!-- 核心控制腳本 -->
+    <script type="module">
+        // ==========================================
+        // 🛠️ 【自訂密碼區】請在這裡設定你想要的登入密碼
+        // ==========================================
+        const CORRECT_PASSWORD = "admin"; // 你可以換成任何你想設定的密碼
+        // ==========================================
+
+        let engine;
+        // 選擇最適合網頁與手機跑、且完全免Key的極輕量 AI 模型 (Llama-3 3B 壓縮版)
+        const selectedModel = "Llama-3-8B-Instruct-q4f16_1-MLC"; 
+
+        // 啟動驗證
+        window.startVerification = function() {
+            const password = prompt("請輸入您的管理員存取密碼：");
+            const errorLabel = document.getElementById("login-error");
+
+            if (password === CORRECT_PASSWORD) {
+                // 驗證成功，隱藏遮罩並開始載入 AI
+                document.getElementById("login-overlay").classList.add("hidden");
+                errorLabel.classList.add("hidden");
+                initLocalAI();
+            } else if (password !== null) {
+                // 密碼錯誤
+                errorLabel.innerText = "❌ 密碼錯誤！拒絕存取本系統。";
+                errorLabel.classList.remove("hidden");
+            }
+        }
+
+        // 安全鎖定（登出）
+        window.lockSystem = function() {
+            location.reload(); // 直接重新整理網頁，重新上鎖
+        }
+
+        // 初始化本機免 Token AI 引擎
+        async function initLocalAI() {
+            const statusLabel = document.getElementById("status");
+            const userInput = document.getElementById("user-input");
+            const sendBtn = document.getElementById("send-btn");
+
+            try {
+                statusLabel.innerText = "正在初始化環境...";
+                engine = await window.webllm.CreateEngineLoopback();
+                
+                // 下載模型進度回報（全繁體中文轉換提示）
+                engine.setInitProgressCallback((report) => {
+                    statusLabel.innerText = report.text.replace("Fetching", "正在抓取").replace("Loading", "正在載入");
+                });
+
+                await engine.reload(selectedModel);
+                statusLabel.innerText = "● AI 系統已就緒 (運作中)";
+                statusLabel.className = "text-xs text-green-300 font-bold";
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.placeholder = "請輸入訊息...";
+            } catch (error) {
+                statusLabel.innerText = "⚠️ 瀏覽器不支援 WebGPU 運算";
+                statusLabel.className = "text-xs text-red-300 font-bold";
+                console.error(error);
+            }
+        }
+
+        // 處理傳送訊息與 AI 自動回覆
+        window.sendMessage = async function() {
+            const userInput = document.getElementById("user-input");
+            const chatBox = document.getElementById("chat-box");
+            const text = userInput.value.trim();
+            if (!text || !engine) return;
+
+            appendMessage(text, 'user');
+            userInput.value = "";
+
+            const aiBubble = appendMessage("AI 正在思考中...", 'ai');
+
+            try {
+                // 讓 AI 強制使用繁體中文回覆的系統提示
+                const messages = [
+                    { role: "system", content: "你是一個實用的AI助理，請一律使用繁體中文(台灣)進行親切的回覆。" },
+                    { role: "user", content: text }
+                ];
+                
+                const reply = await engine.chat.completions.create({ messages });
+                aiBubble.innerText = reply.choices.message.content;
+            } catch (error) {
+                aiBubble.innerText = "生成失敗：" + error.message;
+            }
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function appendMessage(text, sender) {
+            const chatBox = document.getElementById("chat-box");
+            const wrapper = document.createElement("div");
+            wrapper.className = sender === 'user' ? "flex items-start justify-end" : "flex items-start";
+            
+            const bubble = document.createElement("div");
+            bubble.className = sender === 'user' 
+                ? "bg-blue-600 text-white p-3 rounded-lg shadow-sm max-w-[80%] text-sm" 
+                : "bg-white text-gray-800 p-3 rounded-lg shadow-sm max-w-[80%] text-sm leading-relaxed";
+            bubble.innerText = text;
+
+            wrapper.appendChild(bubble);
+            chatBox.appendChild(wrapper);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return bubble;
+        }
+    </script>
+</body>
+</html>
